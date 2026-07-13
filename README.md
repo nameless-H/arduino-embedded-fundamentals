@@ -20,8 +20,8 @@ timers, DMA, and communication protocols.
 
 ## Roadmap Progress
 
-- [✓] Fundamentals — FSM pattern, non-blocking timing, PWM
-- [✓] Temperature & humidity logger
+- [x] Fundamentals — FSM pattern, non-blocking timing, PWM
+- [x] Temperature & humidity logger
 - [ ] Ultrasonic distance sensor with I2C display
 - [ ] PIR motion alarm with FSM
 - [ ] Mini CSV data logger
