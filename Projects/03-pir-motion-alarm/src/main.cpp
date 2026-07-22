@@ -21,9 +21,10 @@ const int pirPin = 2;
 const unsigned long longPressThreshold = 1500; // ms
 const unsigned long debounceDelay = 50;        // ms
 
-bool buttonState = HIGH;
+int buttonState = HIGH;
 
 unsigned long stateEntryTime = 0;
+
 const unsigned long armingTime = 10000;   // ms
 const unsigned long graceTime = 5000;     // ms
 const unsigned long cooldownTime = 30000; // ms
@@ -32,6 +33,7 @@ void handleButton();
 void readButton();
 void readPirSensor();
 void updateLED();
+void updateBuzzer();
 void updateFSM();
 
 void setup()
@@ -48,11 +50,12 @@ void loop()
   handleButton();
   updateFSM();
   updateLED();
+  updateBuzzer();
 }
 
 void readButton()
 {
-  static bool lastButtonReading = HIGH;
+  static int lastButtonReading = HIGH;
   static unsigned long lastDebounceTime = 0;
 
   int reading = digitalRead(buttonPin);
@@ -72,7 +75,7 @@ void readButton()
 
 void handleButton()
 {
-  static bool prevButtonState = HIGH;
+  static int prevButtonState = HIGH;
   static unsigned long pressTime = 0;
   static bool longPressHandled = false;
 
@@ -112,71 +115,94 @@ void readPirSensor()
   lastPirState = currentPirState;
 }
 
-void printState(AlarmState state)
-{
-  switch (state)
-  {
-  case DISARMED:
-    Serial.println("DISARMED");
-    break;
-  case ARMING:
-    Serial.println("ARMING");
-    break;
-  case ARMED:
-    Serial.println("ARMED");
-    break;
-  case TRIGGERED:
-    Serial.println("TRIGGERED");
-    break;
-  case ALARM:
-    Serial.println("ALARM");
-    break;
-  case COOLDOWN:
-    Serial.println("COOLDOWN");
-    break;
-  }
-}
-
 void updateLED()
 {
   static unsigned long lastToggle = 0;
-  static bool ledState = LOW;
-  unsigned long interval = 0;
+  static bool ledOn = false;
+
+  unsigned long onTime = 0;
+  unsigned long offTime = 0;
+  bool useAnalog = false;
 
   switch (currentState)
   {
   case DISARMED:
-    digitalWrite(ledPin, LOW);
+    onTime = 0;
+    offTime = 0;
     break;
   case ARMING:
-    interval = 100;
+    onTime = 100;
+    offTime = 100;
     break;
   case ARMED:
+    onTime = 100;
+    offTime = 1500;
     break;
   case TRIGGERED:
-    interval = 50;
+    onTime = 50;
+    offTime = 50;
     break;
   case ALARM:
-    interval = 0;
+    onTime = 1;
+    offTime = 0;
+    break;
   case COOLDOWN:
-    unsigned long elapsedTime = millis() - stateEntryTime;
-    if (elapsedTime < cooldownTime)
-    {
-      int brightness = map(elapsedTime, 0, cooldownTime, 255, 0);
-      analogWrite(ledPin, brightness);
-    }
-    else
-    {
-      analogWrite(ledPin, 0);
-    }
+    useAnalog = true;
+    break;
   }
 
-  if (millis() - lastToggle >= interval && currentState != DISARMED && currentState != COOLDOWN)
+  if (useAnalog)
+  {
+    unsigned long elapsed = millis() - stateEntryTime;
+    int brightness = map(elapsed, 0, cooldownTime, 255, 0);
+    analogWrite(ledPin, constrain(brightness, 0, 255));
+    return;
+  }
+
+  if (onTime == 0 && offTime == 0)
+  {
+    digitalWrite(ledPin, LOW);
+    return;
+  }
+
+  unsigned long interval = ledOn ? onTime : offTime;
+  if (millis() - lastToggle >= interval)
   {
     lastToggle = millis();
-    ledState = !ledState;
-    digitalWrite(ledPin, ledState);
+    ledOn = !ledOn;
+    digitalWrite(ledPin, ledOn);
   }
+}
+
+void updateBuzzer()
+{
+  static unsigned long lastToggle = 0;
+  static bool buzzerOn = false;
+
+  if (currentState != ALARM)
+  {
+    noTone(buzzerPin);
+    buzzerOn = false;
+    return;
+  }
+
+  if (millis() - lastToggle >= 100)
+  {
+    lastToggle = millis();
+    buzzerOn = !buzzerOn;
+    buzzerOn ? tone(buzzerPin, 1000) : noTone(buzzerPin);
+  }
+}
+
+void printState(AlarmState state) {
+    switch(state) {
+        case DISARMED:  Serial.print("DISARMED");  break;
+        case ARMING:    Serial.print("ARMING");    break;
+        case ARMED:     Serial.print("ARMED");     break;
+        case TRIGGERED: Serial.print("TRIGGERED"); break;
+        case ALARM:     Serial.print("ALARM");     break;
+        case COOLDOWN:  Serial.print("COOLDOWN");  break;
+    }
 }
 
 void updateFSM()
@@ -185,43 +211,39 @@ void updateFSM()
   if (currentState != lastState)
   {
     stateEntryTime = millis();
-    Serial.print("State changed: ");
+    printState(lastState);
+    Serial.print(" \u2192 ");
     printState(currentState);
+    Serial.println("");
     lastState = currentState;
   }
 
   switch (currentState)
   {
   case DISARMED:
-    // Serial.println("DISARMED");
     break;
   case ARMING:
     if (millis() - stateEntryTime >= armingTime)
     {
       currentState = ARMED;
     }
-    // Serial.println("ARMING");
     break;
   case ARMED:
     readPirSensor();
-    // Serial.println("ARMED");
     break;
   case TRIGGERED:
     if (millis() - stateEntryTime >= graceTime)
     {
       currentState = ALARM;
     }
-    // Serial.println("TRIGGERED");
     break;
   case ALARM:
-    // Serial.println("ALARM");
     break;
   case COOLDOWN:
     if (millis() - stateEntryTime >= cooldownTime)
     {
       currentState = ARMED;
     }
-    // Serial.println("COOLDOWN");
     break;
   }
 }
